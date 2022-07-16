@@ -215,6 +215,7 @@ class AioM3u8Downloader:
         output_filename,
         tempdir=".",
         poolsize=5,
+        auto_rename=False,
     ):
         self.start_url = url
 
@@ -242,11 +243,11 @@ class AioM3u8Downloader:
 
         self.media_playlist_localfile = None
         self.poolsize = poolsize
+        self.auto_rename = auto_rename
         self.total_fragments = 0
         # {full_url: local_file}
         self.fragments = OrderedDict()
         self.pool = multiprocessing.Pool(self.poolsize)
-
         self.session = None
 
     async def aio_get_url_content(self, url):
@@ -289,6 +290,19 @@ class AioM3u8Downloader:
                     f.write('\n')
         logger.info("http links rewrote in m3u8 file: %s", local_m3u8_filename)
 
+    def remake_path(self, target_mp4_path):
+        folder_path = os.path.dirname(target_mp4_path)
+        file_name_list = os.listdir(folder_path)
+        file_name = os.path.basename(target_mp4_path)
+        if file_name in file_name_list:
+            logger.info(f'File "{file_name}" already exists')
+            r = re.compile(f'({file_name[:-4]}|{file_name[:-4]}_[1-9]*)\.mp4')
+            name_count = len(list(filter(r.match, file_name_list)))
+            remake_path = f'{target_mp4_path[:-4]}_{name_count}.mp4'
+            logger.info(f'Rename to "{remake_path}"')
+            return remake_path
+        return target_mp4_path
+
     def start(self):
         loop = asyncio.get_event_loop()
         loop.run_until_complete(
@@ -297,21 +311,27 @@ class AioM3u8Downloader:
         target_mp4 = self.output_filename
         if not target_mp4.endswith(".mp4"):
             target_mp4 += ".mp4"
+
+        ensure_dir_exists_for(target_mp4)
+        if self.auto_rename:
+            target_mp4 = self.remake_path(target_mp4)
+
         cmd = [
             "ffmpeg", "-loglevel", "warning", "-allowed_extensions", "ALL",
             "-i", self.media_playlist_localfile, "-acodec", "copy", "-vcodec",
             "copy", "-bsf:a", "aac_adtstoasc", target_mp4
         ]
         logger.info("Running: %s", cmd)
-        proc = subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
+        proc = subprocess.run(cmd)
+
         if proc.returncode != 0:
-            logger.error("run ffmpeg command failed: exitcode=%s",
-                         proc.returncode)
+            logger.error('---------------------------------------------')
+            logger.error(
+                f"run ffmpeg command failed: exitcode={proc.returncode}")
+            logger.error('=> ' + proc.stderr.decode('utf-8'))
+            logger.error('---------------------------------------------')
             sys.exit(proc.returncode)
+
         logger.info("mp4 file created, size=%.1fMiB, filename=%s",
                     filesizeMiB(target_mp4), target_mp4)
         logger.info("Removing temp files in dir: \"%s\"", self.tempdir)
@@ -507,6 +527,12 @@ def main():
                         default=CONF.getint("concurrency"),
                         help='number of fragments to download at a time')
     parser.add_argument('url', metavar='URL', help='the m3u8 url')
+    parser.add_argument(
+        '--auto_rename',
+        '-ar',
+        action='store_true',
+        help='auto rename when output file name already exists',
+    )
     args = parser.parse_args()
 
     if args.debug:
@@ -524,6 +550,7 @@ def main():
         args.output,
         tempdir=tempdir,
         poolsize=args.concurrency,
+        auto_rename=args.auto_rename,
     )
     downloader.start()
 
