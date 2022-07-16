@@ -5,6 +5,13 @@ Update package m3u8downloader to use aiohttp download m3u8 url
 
 aiom3u8downloader base on package m3u8downloader (https://pypi.org/project/m3u8downloader, version: 0.10.1)
 
+ChangeLog
+---------
+
+* v0.0.1
+
+  - use aiohttp download m3u8 url
+
 m3u8downloader
 ============================
 
