@@ -207,7 +207,7 @@ def write_file(file_path, content):
         f.write(content)
 
 
-class M3u8Downloader:
+class AioM3u8Downloader:
 
     def __init__(
         self,
@@ -519,7 +519,7 @@ def main():
 
     tempdir = args.tempdir or os.path.join(get_default_cache_dir(),
                                            'aiom3u8downloader')
-    downloader = M3u8Downloader(
+    downloader = AioM3u8Downloader(
         args.url,
         args.output,
         tempdir=tempdir,
