@@ -341,6 +341,8 @@ class AioM3u8Downloader:
             subprocess.run(["rd", "/s", "/q", self.tempdir], shell=True)
         logger.info("temp files removed")
 
+        return target_mp4
+
     async def aio_mirror_url_resource(self, remote_file_url: str):
         local_file = get_local_file_for_url(self.tempdir, remote_file_url)
         if os.path.exists(local_file):
