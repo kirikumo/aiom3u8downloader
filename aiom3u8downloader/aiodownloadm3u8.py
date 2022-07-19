@@ -17,6 +17,7 @@ import os
 import os.path
 import subprocess
 import re
+from tempfile import gettempdir
 from urllib.parse import urljoin, urlparse
 from collections import OrderedDict
 import multiprocessing
@@ -33,7 +34,7 @@ from aiom3u8downloader.config import CONF
 import asyncio
 import aiohttp
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('aiom3u8downloader')
 
 IMG_SUFFIX_LIST = ['.png', '.jpg', '.jpeg']
 
@@ -56,20 +57,6 @@ def get_local_file_for_url(tempdir, url, path_line=None):
     if path.startswith("/"):
         path = path[1:]
     return os.path.normpath(os.path.join(tempdir, path))
-
-
-def get_default_cache_dir():
-    """get platform based default cache dir.
-
-    on linux, this is $XDG_CACHE_HOME or ~/.cache;
-    on windows, this is %LOCALAPPDATA%.
-
-    """
-    if os.getenv("XDG_CACHE_HOME"):
-        return os.getenv("XDG_CACHE_HOME")
-    if os.getenv("LOCALAPPDATA"):
-        return os.getenv("LOCALAPPDATA")
-    return os.path.expanduser('~/.cache')
 
 
 def is_higher_resolution(new_resolution, old_resolution):
@@ -215,6 +202,7 @@ class AioM3u8Downloader:
         output_filename,
         tempdir=".",
         poolsize=5,
+        limit_conn=100,
         auto_rename=False,
     ):
         self.start_url = url
@@ -243,6 +231,7 @@ class AioM3u8Downloader:
 
         self.media_playlist_localfile = None
         self.poolsize = poolsize
+        self.limit_conn = limit_conn
         self.auto_rename = auto_rename
         self.total_fragments = 0
         # {full_url: local_file}
@@ -481,7 +470,7 @@ class AioM3u8Downloader:
 
         """
 
-        my_conn = aiohttp.TCPConnector(limit=100)
+        my_conn = aiohttp.TCPConnector(limit=self.limit_conn)
         async with aiohttp.ClientSession(connector=my_conn) as session:
 
             self.session = session
@@ -497,7 +486,6 @@ class AioM3u8Downloader:
 
 
 def signal_handler(self, sig, frame):
-    # self.pool.
     # Note: subprocess will auto exit when parent process exit.
 
     logger.info("Exiting on SIGINT/SIGTERM...")
@@ -512,7 +500,6 @@ def main():
                         version='%(prog)s ' + aiom3u8downloader.__version__)
     parser.add_argument('--debug',
                         action='store_true',
-                        default=CONF.getbool("debug"),
                         help='enable debug log')
     parser.add_argument('--output',
                         '-o',
@@ -520,14 +507,20 @@ def main():
                         help='output video filename, e.g. ~/Downloads/foo.mp4')
     parser.add_argument(
         '--tempdir',
-        default=CONF.getstr("tempdir"),
+        default=os.path.join(gettempdir(), 'aiom3u8downloader'),
         help='temp dir, used to store .ts files before combing them into mp4')
     parser.add_argument('--concurrency',
                         '-c',
                         metavar='N',
                         type=int,
-                        default=CONF.getint("concurrency"),
-                        help='number of fragments to download at a time')
+                        default=5,
+                        help='number of save ts file at a time')
+    parser.add_argument(
+        '--limit_conn',
+        '-conn',
+        type=int,
+        default=100,
+        help='limit amount of simultaneously opened connections')
     parser.add_argument('url', metavar='URL', help='the m3u8 url')
     parser.add_argument(
         '--auto_rename',
@@ -538,20 +531,19 @@ def main():
     args = parser.parse_args()
 
     if args.debug:
-        logging.getLogger("").setLevel(logging.DEBUG)
+        logging.getLogger("aiom3u8downloader").setLevel(logging.DEBUG)
         logging.debug("debug set to true")
 
     logger.debug("setup signal_handler for SIGINT and SIGTERM")
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    tempdir = args.tempdir or os.path.join(get_default_cache_dir(),
-                                           'aiom3u8downloader')
     downloader = AioM3u8Downloader(
         args.url,
         args.output,
-        tempdir=tempdir,
+        tempdir=args.tempdir,
         poolsize=args.concurrency,
+        limit_conn=args.limit_conn,
         auto_rename=args.auto_rename,
     )
     downloader.start()
