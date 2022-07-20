@@ -33,14 +33,13 @@ setup(
     author_email="!@#$%^&*()@gmail.com",
     maintainer="cghn",
     maintainer_email="!@#$%^&*()@gmail.com",
-    description="Update package m3u8downloader to use aiohttp download m3u8 url",
+    description=
+    "Update package m3u8downloader to use aiohttp download m3u8 url",
     long_description=open('README.rst').read(),
     long_description_content_type='text/x-rst',
-    license="GPLv2+",
+    license="GPLv3",
     url="https://pypi.org/project/aiom3u8downloader/",
     classifiers=[
-        'Development Status :: 4 - Beta',
-        'License :: OSI Approved :: GNU General Public License (GPL)',
-        'License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)',
-        'Programming Language :: Python :: 3.5',
+        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
+        'Programming Language :: Python :: 3.6',
     ])
