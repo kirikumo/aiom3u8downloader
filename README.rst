@@ -3,7 +3,7 @@ aiom3u8downloader
 
 Update package m3u8downloader to use aiohttp to speed up download m3u8 url
 
-If m3u8 content contains png/jpg/jpeg will try to convert to ts file
+Support disguised as img (png/jpg/jpeg) to decode into ts file
 
 aiom3u8downloader base on package m3u8downloader (https://pypi.org/project/m3u8downloader, version: 0.10.1)
 
