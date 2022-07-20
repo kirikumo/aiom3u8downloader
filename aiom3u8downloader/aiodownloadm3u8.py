@@ -306,9 +306,10 @@ class AioM3u8Downloader:
             target_mp4 = self.remake_path(target_mp4)
 
         cmd = [
-            "ffmpeg", "-loglevel", "warning", "-allowed_extensions", "ALL",
-            "-i", self.media_playlist_localfile, "-acodec", "copy", "-vcodec",
-            "copy", "-bsf:a", "aac_adtstoasc", target_mp4
+            "ffmpeg", "-nostdin", "-loglevel", "warning",
+            "-allowed_extensions", "ALL", "-i", self.media_playlist_localfile,
+            "-acodec", "copy", "-vcodec", "copy", "-bsf:a", "aac_adtstoasc",
+            target_mp4
         ]
         logger.info("Running: %s", cmd)
         proc = subprocess.run(cmd)
