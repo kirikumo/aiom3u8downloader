@@ -32,7 +32,3 @@ def load_logger_config():
                         level=level)
     logging.debug("log dir %s doesn't exist. Using basic config with level=%s",
                   logdir, level)
-
-
-logging.captureWarnings(True)
-load_logger_config()

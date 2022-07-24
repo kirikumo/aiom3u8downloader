@@ -12,29 +12,25 @@ Features:
 from __future__ import print_function, unicode_literals
 
 import argparse
-import sys
-import os
-import os.path
-import subprocess
-import re
-from tempfile import gettempdir
-from urllib.parse import urljoin, urlparse
-from collections import OrderedDict
+import asyncio
+import logging
 import multiprocessing
 import multiprocessing.queues
-import logging
+import os
+import os.path
+import re
 import signal
+import subprocess
+import sys
+from collections import OrderedDict
+from tempfile import gettempdir
+from urllib.parse import urljoin, urlparse
 
+import aiohttp
 import requests
 
 import aiom3u8downloader
-import aiom3u8downloader.configlogger
-from aiom3u8downloader.config import CONF
-
-import asyncio
-import aiohttp
-
-logger = logging.getLogger('aiom3u8downloader')
+from aiom3u8downloader.configlogger import load_logger_config
 
 IMG_SUFFIX_LIST = ['.png', '.jpg', '.jpeg']
 
@@ -197,13 +193,14 @@ def write_file(file_path, content):
 class AioM3u8Downloader:
 
     def __init__(
-        self,
-        url,
-        output_filename,
-        tempdir=".",
-        poolsize=5,
-        limit_conn=100,
-        auto_rename=False,
+            self,
+            url,
+            output_filename,
+            tempdir=".",
+            poolsize=5,
+            limit_conn=100,
+            auto_rename=False,
+            logger: logging.Logger = logging.getLogger(),
     ):
         self.start_url = url
 
@@ -238,6 +235,7 @@ class AioM3u8Downloader:
         self.fragments = OrderedDict()
         self.pool = multiprocessing.Pool(self.poolsize)
         self.session = None
+        self.logger = logger
 
     async def aio_get_url_content(self, url):
         """async fetch url, return content as bytes.
@@ -246,14 +244,14 @@ class AioM3u8Downloader:
         interval = [1, 5, 10]
         for sec in interval:
             try:
-                logger.debug("GET %s", url)
+                self.logger.debug("GET %s", url)
                 async with self.session.get(url) as response:
                     if not response.ok:
                         raise requests.HTTPError(response)
                     return await response.read()
             except Exception as e:
                 await asyncio.sleep(sec)
-        logger.exception(f"fragment download failed: {url}")
+        self.logger.exception(f"fragment download failed: {url}")
 
     def rewrite_http_link_in_m3u8_file(self, local_m3u8_filename, m3u8_url):
         """rewrite fragment url to local relative file path.
@@ -277,18 +275,19 @@ class AioM3u8Downloader:
                         get_local_file_for_url(self.tempdir,
                                                urljoin(m3u8_url, line), line))
                     f.write('\n')
-        logger.info("http links rewrote in m3u8 file: %s", local_m3u8_filename)
+        self.logger.info("http links rewrote in m3u8 file: %s",
+                         local_m3u8_filename)
 
     def remake_path(self, target_mp4_path):
         folder_path = os.path.dirname(target_mp4_path)
         file_name_list = os.listdir(folder_path)
         file_name = os.path.basename(target_mp4_path)
         if file_name in file_name_list:
-            logger.info(f'File "{file_name}" already exists')
+            self.logger.info(f'File "{file_name}" already exists')
             r = re.compile(f'({file_name[:-4]}|{file_name[:-4]}_[1-9]*)\.mp4')
             name_count = len(list(filter(r.match, file_name_list)))
             remake_path = f'{target_mp4_path[:-4]}_{name_count}.mp4'
-            logger.info(f'Rename to "{remake_path}"')
+            self.logger.info(f'Rename to "{remake_path}"')
             return remake_path
         return target_mp4_path
 
@@ -311,32 +310,32 @@ class AioM3u8Downloader:
             "-acodec", "copy", "-vcodec", "copy", "-bsf:a", "aac_adtstoasc",
             target_mp4
         ]
-        logger.info("Running: %s", cmd)
+        self.logger.info("Running: %s", cmd)
         proc = subprocess.run(cmd)
 
         if proc.returncode != 0:
-            logger.error('---------------------------------------------')
-            logger.error(
+            self.logger.error('---------------------------------------------')
+            self.logger.error(
                 f"run ffmpeg command failed: exitcode={proc.returncode}")
-            logger.error('=> ' + proc.stderr.decode('utf-8'))
-            logger.error('---------------------------------------------')
+            self.logger.error('=> ' + proc.stderr.decode('utf-8'))
+            self.logger.error('---------------------------------------------')
             sys.exit(proc.returncode)
 
-        logger.info("mp4 file created, size=%.1fMiB, filename=%s",
-                    filesizeMiB(target_mp4), target_mp4)
-        logger.info("Removing temp files in dir: \"%s\"", self.tempdir)
+        self.logger.info("mp4 file created, size=%.1fMiB, filename=%s",
+                         filesizeMiB(target_mp4), target_mp4)
+        self.logger.info("Removing temp files in dir: \"%s\"", self.tempdir)
         if os.path.exists("/bin/rm"):
             subprocess.run(["/bin/rm", "-rf", self.tempdir])
         elif os.path.exists("C:/Windows/SysWOW64/cmd.exe"):
             subprocess.run(["rd", "/s", "/q", self.tempdir], shell=True)
-        logger.info("temp files removed")
+        self.logger.info("temp files removed")
 
         return target_mp4
 
     async def aio_mirror_url_resource(self, remote_file_url: str):
         local_file = get_local_file_for_url(self.tempdir, remote_file_url)
         if os.path.exists(local_file):
-            logger.debug("skip downloaded resource: %s", remote_file_url)
+            self.logger.debug("skip downloaded resource: %s", remote_file_url)
             return local_file, True
         content = await self.aio_get_url_content(remote_file_url)
         ensure_dir_exists_for(local_file)
@@ -364,9 +363,9 @@ class AioM3u8Downloader:
         key_url = urljoin(url, uri)
         local_key_file, reuse = await self.aio_download_fragment(key_url)
         if reuse:
-            logger.debug("reuse key at: %s", local_key_file)
+            self.logger.debug("reuse key at: %s", local_key_file)
         else:
-            logger.debug("key downloaded at: %s", local_key_file)
+            self.logger.debug("key downloaded at: %s", local_key_file)
 
     async def aio_download_fragment(self, url):
         """download a video fragment.
@@ -375,9 +374,10 @@ class AioM3u8Downloader:
         fragment_full_name, reuse = await self.aio_mirror_url_resource(url)
         if fragment_full_name:
             if reuse:
-                logger.debug("reuse fragment at: %s", fragment_full_name)
+                self.logger.debug("reuse fragment at: %s", fragment_full_name)
             else:
-                logger.debug("fragment created at: %s", fragment_full_name)
+                self.logger.debug("fragment created at: %s",
+                                  fragment_full_name)
         return (url, fragment_full_name)
 
     def fragment_downloaded_from_future(self, future):
@@ -389,20 +389,21 @@ class AioM3u8Downloader:
         # progress log
         fetched_fragment = len(self.fragments)
         if fetched_fragment == self.total_fragments:
-            logger.info("100%%, %s fragments fetched", self.total_fragments)
+            self.logger.info("100%%, %s fragments fetched",
+                             self.total_fragments)
         elif fetched_fragment % 10 == 0:
-            logger.info("[%2.0f%%] %3s/%s fragments fetched",
-                        fetched_fragment * 100.0 / self.total_fragments,
-                        fetched_fragment, self.total_fragments)
+            self.logger.info("[%2.0f%%] %3s/%s fragments fetched",
+                             fetched_fragment * 100.0 / self.total_fragments,
+                             fetched_fragment, self.total_fragments)
 
     async def aio_download_fragments(self, fragment_urls):
         self.total_fragments = len(fragment_urls)
-        logger.info("playlist has %s fragments", self.total_fragments)
+        self.logger.info("playlist has %s fragments", self.total_fragments)
 
         tasks = []
         for url in fragment_urls:
             if url in self.fragments:
-                logger.info("skip downloaded fragment: %s", url)
+                self.logger.info("skip downloaded fragment: %s", url)
                 continue
             task = asyncio.ensure_future(self.aio_download_fragment(url=url))
             task.add_done_callback(self.fragment_downloaded_from_future)
@@ -437,7 +438,7 @@ class AioM3u8Downloader:
             fragment_urls.append(urljoin(url, line))
 
         await self.aio_download_fragments(fragment_urls)
-        logger.info("media playlist all fragments downloaded")
+        self.logger.info("media playlist all fragments downloaded")
 
     async def aio_process_master_playlist(self, url, content):
         """choose the highest quality media playlist, and download it.
@@ -461,8 +462,8 @@ class AioM3u8Downloader:
                 replace_on_next_line = False
             if target_media_playlist is None:
                 target_media_playlist = line
-        logger.info("chose resolution=%s uri=%s", last_resolution,
-                    target_media_playlist)
+        self.logger.info("chose resolution=%s uri=%s", last_resolution,
+                         target_media_playlist)
         await self.aio_process_media_playlist(
             urljoin(url, target_media_playlist))
 
@@ -489,7 +490,6 @@ class AioM3u8Downloader:
 def signal_handler(self, sig, frame):
     # Note: subprocess will auto exit when parent process exit.
 
-    logger.info("Exiting on SIGINT/SIGTERM...")
     sys.exit(0)
 
 
@@ -535,6 +535,7 @@ def main():
         logging.getLogger("aiom3u8downloader").setLevel(logging.DEBUG)
         logging.debug("debug set to true")
 
+    logger = logging.getLogger('aiom3u8downloader')
     logger.debug("setup signal_handler for SIGINT and SIGTERM")
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -546,9 +547,13 @@ def main():
         poolsize=args.concurrency,
         limit_conn=args.limit_conn,
         auto_rename=args.auto_rename,
+        logger=logger,
     )
     downloader.start()
 
 
 if __name__ == '__main__':
+    logging.captureWarnings(True)
+    load_logger_config()
+
     main()
