@@ -14,8 +14,6 @@ from __future__ import print_function, unicode_literals
 import argparse
 import asyncio
 import logging
-import multiprocessing
-import multiprocessing.queues
 import os
 import os.path
 import re
@@ -32,7 +30,7 @@ import requests
 import aiom3u8downloader
 from aiom3u8downloader.configlogger import load_logger_config
 
-IMG_SUFFIX_LIST = ['.png', '.jpg', '.jpeg']
+IMG_SUFFIX_LIST = ['.png', '.jpg', '.jpeg', '.bmp']
 
 
 def get_local_file_for_url(tempdir, url, path_line=None):
@@ -197,7 +195,6 @@ class AioM3u8Downloader:
             url,
             output_filename,
             tempdir=".",
-            poolsize=5,
             limit_conn=100,
             auto_rename=False,
             logger: logging.Logger = logging.getLogger(),
@@ -227,13 +224,11 @@ class AioM3u8Downloader:
             raise
 
         self.media_playlist_localfile = None
-        self.poolsize = poolsize
         self.limit_conn = limit_conn
         self.auto_rename = auto_rename
         self.total_fragments = 0
         # {full_url: local_file}
         self.fragments = OrderedDict()
-        self.pool = multiprocessing.Pool(self.poolsize)
         self.session = None
         self.logger = logger
 
@@ -293,8 +288,11 @@ class AioM3u8Downloader:
 
     def start(self):
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+        success = loop.run_until_complete(
             asyncio.ensure_future(self.aio_download_m3u8_link(self.start_url)))
+
+        if not success:
+            return None, False
 
         target_mp4 = self.output_filename
         if not target_mp4.endswith(".mp4"):
@@ -330,7 +328,7 @@ class AioM3u8Downloader:
             subprocess.run(["rd", "/s", "/q", self.tempdir], shell=True)
         self.logger.info("temp files removed")
 
-        return target_mp4
+        return target_mp4, True
 
     async def aio_mirror_url_resource(self, remote_file_url: str):
         local_file = get_local_file_for_url(self.tempdir, remote_file_url)
@@ -478,13 +476,15 @@ class AioM3u8Downloader:
             self.session = session
 
             content = await self.aio_get_url_content(url)
+            if content is None:
+                return False
+
             if "RESOLUTION" in content.decode('utf-8'):
                 await self.aio_process_master_playlist(url, content)
             else:
                 await self.aio_process_media_playlist(url, content)
 
-        self.pool.close()
-        self.pool.join()
+        return True
 
 
 def signal_handler(self, sig, frame):
@@ -510,12 +510,6 @@ def main():
         '--tempdir',
         default=os.path.join(gettempdir(), 'aiom3u8downloader'),
         help='temp dir, used to store .ts files before combing them into mp4')
-    parser.add_argument('--concurrency',
-                        '-c',
-                        metavar='N',
-                        type=int,
-                        default=5,
-                        help='number of save ts file at a time')
     parser.add_argument(
         '--limit_conn',
         '-conn',
@@ -544,7 +538,6 @@ def main():
         args.url,
         args.output,
         tempdir=args.tempdir,
-        poolsize=args.concurrency,
         limit_conn=args.limit_conn,
         auto_rename=args.auto_rename,
         logger=logger,

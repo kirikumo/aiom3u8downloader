@@ -6,23 +6,26 @@ python distribute file
 
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals, with_statement)
+import os
+import pkg_resources
 
 from setuptools import setup, find_packages
 
-
-def requirements_file_to_list(fn="requirements.txt"):
-    """read a requirements file and create a list that can be used in setup.
-
-    """
-    with open(fn, 'r') as f:
-        return [x.rstrip() for x in list(f) if x and not x.startswith('#')]
-
-
 setup(
     name="aiom3u8downloader",
-    version='0.0.1',
-    # packages=find_packages(exclude=("utils", )),
-    install_requires=requirements_file_to_list(),
+    version='1.0.3',
+    description=
+    "Update package m3u8downloader to use aiohttp download m3u8 url",
+    long_description=open('README.rst').read(),
+    long_description_content_type='text/x-rst',
+    python_requires=">=3.6",
+    install_requires=[
+        str(r)
+        for r in pkg_resources.parse_requirements(
+            open(os.path.join(os.path.dirname(__file__), "requirements.txt"))
+        )
+    ],
+    include_package_data=True,
     entry_points={
         'console_scripts': [
             'aiodownloadm3u8 = aiom3u8downloader.aiodownloadm3u8:main',
@@ -30,13 +33,6 @@ setup(
     },
     package_data={'aiom3u8downloader': ['logger.conf']},
     author="cghn",
-    author_email="!@#$%^&*()@gmail.com",
-    maintainer="cghn",
-    maintainer_email="!@#$%^&*()@gmail.com",
-    description=
-    "Update package m3u8downloader to use aiohttp download m3u8 url",
-    long_description=open('README.rst').read(),
-    long_description_content_type='text/x-rst',
     license="GPLv3",
     url="https://pypi.org/project/aiom3u8downloader/",
     classifiers=[

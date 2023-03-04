@@ -20,7 +20,7 @@ To install aiom3u8downloader, simply:
 
    $ sudo apt install -y ffmpeg
    # python version >= python3.6
-   $ pip install -r requirements.txt
+   $ pip install aiom3u8downloader
 
 Quick Start
 -----------
@@ -42,8 +42,8 @@ Here is built-in command line help:
 .. code-block:: text
 
    usage: aiom3u8downloader [-h] [--version] [--debug] --output OUTPUT
-                              [--tempdir TEMPDIR] [--concurrency N]
-                              [--limit_conn LIMIT_CONN] [--auto_rename] URL
+                              [--tempdir TEMPDIR] [--limit_conn LIMIT_CONN]
+                              [--auto_rename] URL
    
    download video at m3u8 url
    
@@ -57,8 +57,6 @@ Here is built-in command line help:
      --output OUTPUT, -o OUTPUT
                                  output video filename, e.g. ~/Downloads/foo.mp4
      --tempdir TEMPDIR           temp dir, used to store .ts files before combing them into mp4
-     --concurrency N, -c N
-                                 number of save ts file at a time
      --limit_conn LIMIT_CONN, -conn LIMIT_CONN
                                  limit amount of simultaneously opened connections
      --auto_rename, -ar          auto rename when output file name already exists
@@ -77,3 +75,9 @@ ChangeLog
 * v0.0.1
 
   - use aiohttp download m3u8 url
+
+* v1.0.3
+
+  - remove multiprocessing package
+
+  - release to pypi
