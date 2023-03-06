@@ -188,6 +188,8 @@ def write_file(file_path, content):
         f.write(content)
 
 
+class ContentIsNoneError(Exception): ...
+
 class AioM3u8Downloader:
 
     def __init__(
@@ -315,7 +317,8 @@ class AioM3u8Downloader:
             self.logger.error('---------------------------------------------')
             self.logger.error(
                 f"run ffmpeg command failed: exitcode={proc.returncode}")
-            self.logger.error('=> ' + proc.stderr.decode('utf-8'))
+            if proc.stderr:
+                self.logger.error('=> ' + proc.stderr.decode('utf-8'))
             self.logger.error('---------------------------------------------')
             sys.exit(proc.returncode)
 
@@ -331,18 +334,22 @@ class AioM3u8Downloader:
         return target_mp4, True
 
     async def aio_mirror_url_resource(self, remote_file_url: str):
+        """ return fragment_full_name, reuse, success """
         local_file = get_local_file_for_url(self.tempdir, remote_file_url)
         if os.path.exists(local_file):
             self.logger.debug("skip downloaded resource: %s", remote_file_url)
-            return local_file, True
+            return local_file, True, True
         content = await self.aio_get_url_content(remote_file_url)
+        if content is None:
+            return None, False, False
+
         ensure_dir_exists_for(local_file)
         if any(map(remote_file_url.lower().endswith, IMG_SUFFIX_LIST)):
             # image to ts
             content = content[212:]
 
         write_file(local_file, content)
-        return local_file, False
+        return local_file, False, True
 
     async def aio_download_key(self, url, key_line):
         """download key.
@@ -359,30 +366,31 @@ class AioM3u8Downloader:
             raise RuntimeError("key line doesn't have URI")
         uri = mo.group(1)
         key_url = urljoin(url, uri)
-        local_key_file, reuse = await self.aio_download_fragment(key_url)
+        local_key_file, reuse, success = await self.aio_download_fragment(key_url)
         if reuse:
             self.logger.debug("reuse key at: %s", local_key_file)
         else:
             self.logger.debug("key downloaded at: %s", local_key_file)
+        return success
 
     async def aio_download_fragment(self, url):
         """download a video fragment.
 
         """
-        fragment_full_name, reuse = await self.aio_mirror_url_resource(url)
+        fragment_full_name, reuse, success = await self.aio_mirror_url_resource(url)
         if fragment_full_name:
             if reuse:
-                self.logger.debug("reuse fragment at: %s", fragment_full_name)
+                self.logger.debug(f"reuse fragment at: {fragment_full_name}", )
             else:
-                self.logger.debug("fragment created at: %s",
-                                  fragment_full_name)
-        return (url, fragment_full_name)
+                self.logger.debug(f"fragment created at: {fragment_full_name}")
+        return (url, fragment_full_name, success)
 
     def fragment_downloaded_from_future(self, future):
         """apply_async callback.
 
         """
-        url, fragment_full_name = future.result()
+        url, fragment_full_name, success = future.result()
+        if not success: return
         self.fragments[url] = fragment_full_name
         # progress log
         fetched_fragment = len(self.fragments)
@@ -406,7 +414,12 @@ class AioM3u8Downloader:
             task = asyncio.ensure_future(self.aio_download_fragment(url=url))
             task.add_done_callback(self.fragment_downloaded_from_future)
             tasks.append(task)
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        statusList = [success for _,_,success in results]
+        if statusList.count(False) > len(tasks) * 0.05:
+            return False
+        return True
 
     async def aio_process_media_playlist(self, url, content=None):
         """replicate every file on the playlist in local temp dir.
@@ -416,27 +429,38 @@ class AioM3u8Downloader:
             content: the playlist content for resource at the url.
 
         """
-        self.media_playlist_localfile, _ = await self.aio_mirror_url_resource(
+        self.media_playlist_localfile, _, _success = await self.aio_mirror_url_resource(
             url)
+        if not _success:
+            return False
+
         # always try rewrite because we can't be sure whether the copy in
         # cache dir has been rewritten yet.
         self.rewrite_http_link_in_m3u8_file(self.media_playlist_localfile, url)
         if content is None:
             content = await self.aio_get_url_content(url)
 
+            if content is None:
+                return False
+
         fragment_urls = []
         for line in content.decode("utf-8").split('\n'):
             if line.startswith('#EXT-X-KEY'):
-                await self.aio_download_key(url, line)
+                success = await self.aio_download_key(url, line)
+                if not success: return False
                 continue
             if line.startswith('#') or line.strip() == '':
                 continue
             if line.endswith(".m3u8"):
-                raise RuntimeError("media playlist should not include .m3u8")
+                self.logger.info("media playlist should not include .m3u8")
+                # raise RuntimeError("media playlist should not include .m3u8")
+                return False
             fragment_urls.append(urljoin(url, line))
 
-        await self.aio_download_fragments(fragment_urls)
+        success = await self.aio_download_fragments(fragment_urls)
         self.logger.info("media playlist all fragments downloaded")
+        
+        return success
 
     async def aio_process_master_playlist(self, url, content):
         """choose the highest quality media playlist, and download it.
@@ -462,8 +486,10 @@ class AioM3u8Downloader:
                 target_media_playlist = line
         self.logger.info("chose resolution=%s uri=%s", last_resolution,
                          target_media_playlist)
-        await self.aio_process_media_playlist(
+        success = await self.aio_process_media_playlist(
             urljoin(url, target_media_playlist))
+
+        return success
 
     async def aio_download_m3u8_link(self, url):
         """download video at m3u8 link.
@@ -480,11 +506,11 @@ class AioM3u8Downloader:
                 return False
 
             if "RESOLUTION" in content.decode('utf-8'):
-                await self.aio_process_master_playlist(url, content)
+                success = await self.aio_process_master_playlist(url, content)
             else:
-                await self.aio_process_media_playlist(url, content)
+                success = await self.aio_process_media_playlist(url, content)
 
-        return True
+        return success
 
 
 def signal_handler(self, sig, frame):

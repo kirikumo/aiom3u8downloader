@@ -34,7 +34,7 @@ setup(
     package_data={'aiom3u8downloader': ['logger.conf']},
     author="cghn",
     license="GPLv3",
-    url="https://pypi.org/project/aiom3u8downloader/",
+    url="https://github.com/kirikumo/aiom3u8downloader/",
     classifiers=[
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Programming Language :: Python :: 3.6',
