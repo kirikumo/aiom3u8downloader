@@ -22,7 +22,7 @@ setup(
     install_requires=[
         str(r)
         for r in pkg_resources.parse_requirements(
-            open(os.path.join(os.path.dirname(__file__), "requirements.txt"))
+            'requirements.txt'
         )
     ],
     include_package_data=True,
@@ -31,6 +31,8 @@ setup(
             'aiodownloadm3u8 = aiom3u8downloader.aiodownloadm3u8:main',
         ]
     },
+    package_dir={'':"aiom3u8downloader"},
+    packages=find_packages("aiom3u8downloader", "."),
     package_data={'aiom3u8downloader': ['logger.conf']},
     author="cghn",
     license="GPLv3",
