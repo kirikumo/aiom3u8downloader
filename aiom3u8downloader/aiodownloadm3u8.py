@@ -48,9 +48,10 @@ def get_local_file_for_url(tempdir, url, path_line=None):
         # runs.
         return keep_ts_suffix(path_line)
     path = keep_ts_suffix(get_url_path(url))
-    if path.startswith("/"):
-        path = path[1:]
-    return os.path.normpath(os.path.join(tempdir, path))
+    repath = windows_safe_filename_without_path(path)
+    if repath.startswith("/"):
+        repath = repath[1:]
+    return os.path.normpath(os.path.join(tempdir, repath))
 
 
 def is_higher_resolution(new_resolution, old_resolution):
@@ -141,6 +142,22 @@ def rewrite_key_uri(tempdir, m3u8_url, key_line):
         local_key_file = local_key_file.replace('\\', '/')
     return keep_ts_suffix(prefix + local_key_file + suffix)
 
+
+def windows_safe_filename_without_path(name):
+    # see
+    # https://docs.microsoft.com/en-us/windows/desktop/fileio/naming-a-file
+    replace_chars = {
+        '<': '《',
+        '>': '》',
+        ':': '：',
+        '"': '“',
+        '|': '_',
+        '?': '？',
+        '*': '_',
+    }
+    for k, v in replace_chars.items():
+        name = name.replace(k, v)
+    return name
 
 def _windows_safe_filename(name):
     # see
