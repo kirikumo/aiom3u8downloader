@@ -6,14 +6,11 @@ python distribute file
 
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals, with_statement)
-import os
-import pkg_resources
-
 from setuptools import setup, find_packages
 
 setup(
     name="aiom3u8downloader",
-    version='1.1.5',
+    version='1.1.6',
     description=
     "Update package m3u8downloader to use aiohttp download m3u8 url",
     long_description=open('README.rst').read(),
@@ -39,4 +36,12 @@ setup(
     classifiers=[
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
+        'Programming Language :: Python :: 3.14',
     ])

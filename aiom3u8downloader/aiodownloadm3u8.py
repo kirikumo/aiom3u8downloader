@@ -28,7 +28,7 @@ import aiohttp
 import shutil
 
 import aiom3u8downloader
-from aiom3u8downloader.configlogger import load_logger_config
+# from aiom3u8downloader.configlogger import load_logger_config
 
 IMG_SUFFIX_LIST = ['.png', '.jpg', '.jpeg', '.bmp']
 
@@ -629,6 +629,6 @@ def main():
 
 if __name__ == '__main__':
     logging.captureWarnings(True)
-    load_logger_config()
+    # load_logger_config()
 
     main()

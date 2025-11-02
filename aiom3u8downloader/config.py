@@ -11,7 +11,7 @@ import os
 
 from wells.config import ConfigurationManger
 
-import aiom3u8downloader.configlogger
+# import aiom3u8downloader.configlogger
 
 logger = logging.getLogger(__name__)
 
