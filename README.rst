@@ -30,6 +30,8 @@ Example command line usage:
 .. code-block:: bash
 
    aiodownloadm3u8 -o ~/Downloads/foo.mp4 https://example.com/path/to/foo.m3u8
+   or
+   aiom3u8downloader -o ~/Downloads/foo.mp4 https://example.com/path/to/foo.m3u8
 
 If ~/.local/bin is not in $PATH, you can use full path:
 

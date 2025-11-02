@@ -25,7 +25,7 @@ from tempfile import gettempdir
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
-import requests
+import shutil
 
 import aiom3u8downloader
 from aiom3u8downloader.configlogger import load_logger_config
@@ -260,12 +260,20 @@ class AioM3u8Downloader:
             try:
                 self.logger.debug("GET %s", url)
                 async with self.session.get(url) as response:
-                    if not response.ok:
-                        raise requests.HTTPError(response)
+                    try:
+                        response.raise_for_status()
+                    except Exception:
+                        # non-2xx response
+                        self.logger.warning("bad response status=%s for %s",
+                                            response.status, url)
+                        raise
                     return await response.read()
             except Exception as e:
+                self.logger.debug("GET failed (%s), retrying in %s s: %s", e, sec, url)
                 await asyncio.sleep(sec)
-        self.logger.exception(f"fragment download failed: {url}")
+        # all retries failed
+        self.logger.exception("fragment download failed after retries: %s", url)
+        return None
 
     def rewrite_http_link_in_m3u8_file(self, local_m3u8_filename, m3u8_url):
         """rewrite fragment url to local relative file path.
@@ -276,6 +284,8 @@ class AioM3u8Downloader:
         with open(local_m3u8_filename, 'w') as f:
             for line in content.split('\n'):
                 if line.startswith('#'):
+                    if line == '#EXT-X-KEY:METHOD=NONE':
+                        continue
                     if line.startswith('#EXT-X-KEY:'):
                         f.write(rewrite_key_uri(self.tempdir, m3u8_url, line))
                     else:
@@ -298,7 +308,7 @@ class AioM3u8Downloader:
         file_name = os.path.basename(target_mp4_path)
         if file_name in file_name_list:
             self.logger.info(f'File "{file_name}" already exists')
-            r = re.compile(f'({file_name[:-4]}|{file_name[:-4]}_[1-9]*)\.mp4')
+            r = re.compile(f'({file_name[:-4]}|{file_name[:-4]}_[1-9]*)\\.mp4')
             name_count = len(list(filter(r.match, file_name_list)))
             remake_path = f'{target_mp4_path[:-4]}_{name_count}.mp4'
             self.logger.info(f'Rename to "{remake_path}"')
@@ -328,7 +338,7 @@ class AioM3u8Downloader:
             target_mp4
         ]
         self.logger.info("Running: %s", cmd)
-        proc = subprocess.run(cmd)
+        proc = subprocess.run(cmd, capture_output=True)
 
         if proc.returncode != 0:
             self.logger.error('---------------------------------------------')
@@ -342,10 +352,11 @@ class AioM3u8Downloader:
         self.logger.info("mp4 file created, size=%.1fMiB, filename=%s",
                          filesizeMiB(target_mp4), target_mp4)
         self.logger.info("Removing temp files in dir: \"%s\"", self.tempdir)
-        if os.path.exists("/bin/rm"):
-            subprocess.run(["/bin/rm", "-rf", self.tempdir])
-        elif os.path.exists("C:/Windows/SysWOW64/cmd.exe"):
-            subprocess.run(["rd", "/s", "/q", self.tempdir], shell=True)
+        try:
+            if os.path.exists(self.tempdir):
+                shutil.rmtree(self.tempdir)
+        except Exception:
+            self.logger.exception("failed to remove temp dir: %s", self.tempdir)
         self.logger.info("temp files removed")
 
         return target_mp4, True
@@ -406,8 +417,16 @@ class AioM3u8Downloader:
         """apply_async callback.
 
         """
-        url, fragment_full_name, success = future.result()
-        if not success: return
+        try:
+            res = future.result()
+        except Exception:
+            self.logger.exception("fragment download future raised an exception")
+            return
+        if not res:
+            return
+        url, fragment_full_name, success = res
+        if not success:
+            return
         self.fragments[url] = fragment_full_name
         # progress log
         fetched_fragment = len(self.fragments)
@@ -433,8 +452,25 @@ class AioM3u8Downloader:
             tasks.append(task)
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        statusList = [success for _,_,success in results]
-        if statusList.count(False) > len(tasks) * 0.05:
+        # results may contain Exception objects because return_exceptions=True
+        failures = 0
+        total = len(tasks)
+        for r in results:
+            if isinstance(r, Exception):
+                failures += 1
+                self.logger.exception("download task failed with exception")
+                continue
+            try:
+                _, _, success = r
+            except Exception:
+                failures += 1
+            else:
+                if not success:
+                    failures += 1
+
+        if total == 0:
+            return True
+        if failures > total * 0.05:
             return False
         return True
 
@@ -462,9 +498,12 @@ class AioM3u8Downloader:
 
         fragment_urls = []
         for line in content.decode("utf-8").split('\n'):
+            if line == '#EXT-X-KEY:METHOD=NONE':
+                continue
             if line.startswith('#EXT-X-KEY'):
                 success = await self.aio_download_key(url, line)
-                if not success: return False
+                if not success:
+                    return False
                 continue
             if line.startswith('#') or line.strip() == '':
                 continue
@@ -530,7 +569,7 @@ class AioM3u8Downloader:
         return success
 
 
-def signal_handler(self, sig, frame):
+def signal_handler(sig, frame):
     # Note: subprocess will auto exit when parent process exit.
 
     sys.exit(0)

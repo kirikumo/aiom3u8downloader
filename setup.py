@@ -13,7 +13,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="aiom3u8downloader",
-    version='1.1.4',
+    version='1.1.5',
     description=
     "Update package m3u8downloader to use aiohttp download m3u8 url",
     long_description=open('README.rst').read(),
@@ -27,6 +27,7 @@ setup(
     entry_points={
         'console_scripts': [
             'aiodownloadm3u8 = aiom3u8downloader.aiodownloadm3u8:main',
+            'aiom3u8downloader = aiom3u8downloader.aiodownloadm3u8:main',
         ]
     },
     package_dir={'':"."},

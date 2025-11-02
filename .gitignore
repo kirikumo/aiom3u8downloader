@@ -1,0 +1,6 @@
+*.ts
+*.mp4
+*.srt
+aiom3u8downloader/__pycache__/
+aiom3u8downloader.egg-info/
+build/
