@@ -17,18 +17,20 @@ import logging
 import os
 import os.path
 import re
+import shutil
 import signal
 import subprocess
 import sys
 from collections import OrderedDict
+from datetime import datetime as dat
+from pathlib import Path
 from tempfile import gettempdir
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
-import shutil
 
 import aiom3u8downloader
-# from aiom3u8downloader.configlogger import load_logger_config
+from aiom3u8downloader.cut_insert_ts import CutInsertTs
 
 IMG_SUFFIX_LIST = ['.png', '.jpg', '.jpeg', '.bmp']
 
@@ -68,7 +70,7 @@ def is_higher_resolution(new_resolution, old_resolution):
         old_resolution.split("x")[0])
 
 
-def filesizeMiB(filename):
+def filesize_mib(filename):
     s = os.stat(filename)
     return s.st_size / 1024 / 1024.0
 
@@ -130,9 +132,12 @@ def rewrite_key_uri(tempdir, m3u8_url, key_line):
     uri = mo.group(2)
     suffix = mo.group(3)
 
-    if uri and uri.startswith(tempdir):
-        # already using local file path in uri.
-        return keep_ts_suffix(key_line)
+    try:
+        if uri and Path(uri).is_relative_to(tempdir):
+            return keep_ts_suffix(key_line)
+    except Exception:
+        if uri and str(uri).startswith(str(tempdir)):
+            return keep_ts_suffix(key_line)
 
     url = urljoin(m3u8_url, uri)
     local_key_file = get_local_file_for_url(tempdir, url, key_line)
@@ -205,8 +210,6 @@ def write_file(file_path, content):
         f.write(content)
 
 
-class ContentIsNoneError(Exception): ...
-
 class AioM3u8Downloader:
 
     def __init__(
@@ -216,6 +219,7 @@ class AioM3u8Downloader:
             tempdir=".",
             limit_conn=100,
             auto_rename=False,
+            cut_ads=False,
             logger: logging.Logger = logging.getLogger(),
     ):
         self.start_url = url
@@ -234,7 +238,7 @@ class AioM3u8Downloader:
             logger.debug("output_filename=%s", output_filename)
         self.output_filename = get_fullpath(output_filename)
         self.tempdir = get_fullpath(
-            os.path.join(tempdir, get_basename(output_filename)))
+            os.path.join(tempdir, urlparse(url).hostname.replace('.','_') + '_' + get_basename(output_filename)))
         try:
             os.makedirs(self.tempdir, exist_ok=True)
             logger.debug("using temp dir at: %s", self.tempdir)
@@ -242,11 +246,11 @@ class AioM3u8Downloader:
             logger.exception("create tempdir failed for: %s", self.tempdir)
             raise
 
-        self.media_playlist_localfile = None
+        self.media_playlist_local_file = None
         self.limit_conn = limit_conn
         self.auto_rename = auto_rename
         self.total_fragments = 0
-        # {full_url: local_file}
+        self.cut_ads = cut_ads
         self.fragments = OrderedDict()
         self.session = None
         self.logger = logger
@@ -308,9 +312,8 @@ class AioM3u8Downloader:
         file_name = os.path.basename(target_mp4_path)
         if file_name in file_name_list:
             self.logger.info(f'File "{file_name}" already exists')
-            r = re.compile(f'({file_name[:-4]}|{file_name[:-4]}_[1-9]*)\\.mp4')
-            name_count = len(list(filter(r.match, file_name_list)))
-            remake_path = f'{target_mp4_path[:-4]}_{name_count}.mp4'
+            timestamp = int(dat.now().timestamp())
+            remake_path = f'{target_mp4_path[:-4]}_{timestamp}.mp4'
             self.logger.info(f'Rename to "{remake_path}"')
             return remake_path
         return target_mp4_path
@@ -331,9 +334,18 @@ class AioM3u8Downloader:
         if self.auto_rename:
             target_mp4 = self.remake_path(target_mp4)
 
+        media_path = self.media_playlist_local_file
+        if self.cut_ads:
+            cutInsertTs = CutInsertTs(logger=self.logger)
+            success = cutInsertTs.cut(self.media_playlist_local_file)
+
+            if success:
+                media_path = cutInsertTs.gen_cut_path(self.media_playlist_local_file)
+
         cmd = [
-            "ffmpeg", "-nostdin", "-loglevel", "warning",
-            "-allowed_extensions", "ALL", "-i", self.media_playlist_localfile,
+            "ffmpeg", "-nostdin", "-loglevel", "info",
+            "-fflags", "+genpts",
+            "-allowed_extensions", "ALL", "-i", media_path,
             "-acodec", "copy", "-vcodec", "copy", "-bsf:a", "aac_adtstoasc",
             target_mp4
         ]
@@ -350,7 +362,7 @@ class AioM3u8Downloader:
             sys.exit(proc.returncode)
 
         self.logger.info("mp4 file created, size=%.1fMiB, filename=%s",
-                         filesizeMiB(target_mp4), target_mp4)
+                 filesize_mib(target_mp4), target_mp4)
         self.logger.info("Removing temp files in dir: \"%s\"", self.tempdir)
         try:
             if os.path.exists(self.tempdir):
@@ -362,7 +374,7 @@ class AioM3u8Downloader:
         return target_mp4, True
 
     async def aio_mirror_url_resource(self, remote_file_url: str):
-        """ return fragment_full_name, reuse, success """
+        """ return fragment_file_local_path, reuse, success """
         local_file = get_local_file_for_url(self.tempdir, remote_file_url)
         if os.path.exists(local_file):
             self.logger.debug("skip downloaded resource: %s", remote_file_url)
@@ -405,13 +417,13 @@ class AioM3u8Downloader:
         """download a video fragment.
 
         """
-        fragment_full_name, reuse, success = await self.aio_mirror_url_resource(url)
-        if fragment_full_name:
+        fragment_file_local_path, reuse, success = await self.aio_mirror_url_resource(url)
+        if fragment_file_local_path:
             if reuse:
-                self.logger.debug(f"reuse fragment at: {fragment_full_name}", )
+                self.logger.debug(f"reuse fragment at: {fragment_file_local_path}", )
             else:
-                self.logger.debug(f"fragment created at: {fragment_full_name}")
-        return (url, fragment_full_name, success)
+                self.logger.debug(f"fragment created at: {fragment_file_local_path}")
+        return (url, fragment_file_local_path, success)
 
     def fragment_downloaded_from_future(self, future):
         """apply_async callback.
@@ -424,10 +436,10 @@ class AioM3u8Downloader:
             return
         if not res:
             return
-        url, fragment_full_name, success = res
+        url, fragment_file_local_path, success = res
         if not success:
             return
-        self.fragments[url] = fragment_full_name
+        self.fragments[url] = fragment_file_local_path
         # progress log
         fetched_fragment = len(self.fragments)
         if fetched_fragment == self.total_fragments:
@@ -452,7 +464,6 @@ class AioM3u8Downloader:
             tasks.append(task)
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # results may contain Exception objects because return_exceptions=True
         failures = 0
         total = len(tasks)
         for r in results:
@@ -482,14 +493,14 @@ class AioM3u8Downloader:
             content: the playlist content for resource at the url.
 
         """
-        self.media_playlist_localfile, _, _success = await self.aio_mirror_url_resource(
+        self.media_playlist_local_file, _, success = await self.aio_mirror_url_resource(
             url)
-        if not _success:
+        if not success:
             return False
 
         # always try rewrite because we can't be sure whether the copy in
         # cache dir has been rewritten yet.
-        self.rewrite_http_link_in_m3u8_file(self.media_playlist_localfile, url)
+        self.rewrite_http_link_in_m3u8_file(self.media_playlist_local_file, url)
         if content is None:
             content = await self.aio_get_url_content(url)
 
@@ -553,7 +564,9 @@ class AioM3u8Downloader:
         """
 
         my_conn = aiohttp.TCPConnector(limit=self.limit_conn)
-        async with aiohttp.ClientSession(connector=my_conn) as session:
+        async with aiohttp.ClientSession(connector=my_conn, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0'
+        }) as session:
 
             self.session = session
 
@@ -605,6 +618,12 @@ def main():
         action='store_true',
         help='auto rename when output file name already exists',
     )
+    parser.add_argument(
+        '--cut_ads',
+        '-c',
+        action='store_true',
+        help='attempt to filter out ad segments before combining.',
+    )
     args = parser.parse_args()
 
     if args.debug:
@@ -622,10 +641,10 @@ def main():
         tempdir=args.tempdir,
         limit_conn=args.limit_conn,
         auto_rename=args.auto_rename,
+        cut_ads=args.cut_ads,
         logger=logger,
     )
     downloader.start()
-
 
 if __name__ == '__main__':
     logging.captureWarnings(True)
