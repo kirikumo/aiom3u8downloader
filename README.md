@@ -108,6 +108,6 @@ extension this tool may fail to download correctly.
   - support for segments disguised as images (png/jpg/jpeg/bmp)
   - added `--auto_rename` and Windows-safe filename handling
 
-* v1.2.0
+* v1.2.2
 
   - added `--cut_ads` option to attempt ad removal before muxing

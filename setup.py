@@ -10,10 +10,10 @@ from setuptools import setup, find_packages
 
 setup(
     name="aiom3u8downloader",
-    version='1.2.0',
+    version='1.2.2',
     description=
     "Update package m3u8downloader to use aiohttp download m3u8 url",
-    long_description=open('README.md').read(),
+    long_description=open('README.md', encoding='utf-8').read(),
     long_description_content_type='text/markdown',
     python_requires=">=3.6",
     install_requires=[
