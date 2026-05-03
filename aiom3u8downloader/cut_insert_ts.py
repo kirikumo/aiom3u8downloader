@@ -49,15 +49,14 @@ class CutInsertTs:
             cmd = [
                 'ffprobe',
                 '-v',
-                'quiet',
+                'error',
                 '-print_format',
                 'json',
                 '-read_intervals',
-                '%+0.1',  # 只读取前0.1秒的数据
-                '-select_streams',
-                'v:0,a:0',  # 只获取第一个视频和音频流，加快速度
+                '%+0.1',
                 '-show_entries',
                 f'stream={stream_tags}',
+                '-i',
                 ts_path,
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -97,15 +96,14 @@ class CutInsertTs:
         cmd = [
             'ffprobe',
             '-v',
-            'quiet',
+            'error',
             '-print_format',
             'json',
             '-read_intervals',
             '%+0.1',
-            '-select_streams',
-            'v:0,a:0',
             '-show_entries',
             f'stream={stream_tags}',
+            '-i',
             ts_path,
         ]
 
@@ -239,9 +237,12 @@ class CutInsertTs:
                 elif 'keep' not in entry:
                     entry['keep'] = True
 
+        if any_change:
+            self.logger.info('Use PTS Cut')
+
         return any_change
 
-    async def _run(self, file_path):
+    async def cut(self, file_path):
         groups = self._group_lines(file_path)
 
         group_infos = []
@@ -271,10 +272,5 @@ class CutInsertTs:
 
         if any_change:
             self.generate_cut_m3u8(file_path, group_infos)
-            self.logger.info('Use PTS Cut')
 
-        return any_change
-
-    def cut(self, filePath):
-        any_change = asyncio.run(self._run(filePath))
         return any_change

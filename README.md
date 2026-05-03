@@ -1,12 +1,14 @@
 # aiom3u8downloader
 
+Lightweight asynchronous HLS (m3u8) downloader — fast parallel downloads with aiohttp, and mp4 assembly via ffmpeg.
+
 aiom3u8downloader is a fast, reliable command-line HLS (m3u8) downloader and
-MP4 assembler written in Python. It uses asynchronous HTTP requests (`aiohttp`)
+mp4 assembler written in Python. It uses asynchronous HTTP requests (`aiohttp`)
 to download media segments in parallel, supports robust retry logic, and
-leverages `ffmpeg` to mux the downloaded fragments into a single MP4 file.
+leverages `ffmpeg` to mux the downloaded fragments into a single mp4 file.
 
 Designed for both servers and desktops (Linux/Windows/macOS), it is ideal for
-users who want a lightweight tool to save HLS streams to local MP4 files.
+users who want a lightweight tool to save HLS streams to local mp4 files.
 
 This project is based on the `m3u8downloader` package (https://pypi.org/project/m3u8downloader),
 originally released as version 0.10.1 — aiom3u8downloader started as an async
@@ -18,7 +20,7 @@ rewrite and enhancement of that project.
 - Handles media segments disguised as images (PNG/JPG/JPEG/BMP) and converts
   them into `.ts` fragments automatically.
 - New: optional ad cutting via the `--cut_ads` flag which attempts to
-  filter out ad segments before assembling the final MP4 (slows synthesis but
+  filter out ad segments before assembling the final mp4 (slows synthesis but
   produces cleaner videos).
 - Auto-rename output file when a file with the same name already exists
   (`--auto_rename`).
@@ -43,15 +45,38 @@ $ pip install aiom3u8downloader
 
 ## Quick Start
 
-Download an m3u8 and save as MP4:
+Download an m3u8 and save as mp4:
 
 ```bash
 $ aiodownloadm3u8 -o ~/Downloads/foo.mp4 https://example.com/path/to/foo.m3u8
 ```
 
+## Programmatic usage
+
+```python
+from aiom3u8downloader.aiodownloadm3u8 import AioM3u8Downloader
+
+urls = [
+  "https://example.com/path/to/stream1.m3u8",
+  "https://example.com/path/to/stream2.m3u8",
+  ...
+]
+output_file = "./foo.mp4"
+
+downloader = AioM3u8Downloader(
+  urls,
+  output_file,
+)
+
+downloader.start()
+```
+
+Notes:
+- Ensure ffmpeg is installed and available on PATH — the tool uses ffmpeg to assemble mp4 from downloaded fragments.
+
 ### Common options
 
-- `--output`, `-o` : output MP4 filename (required)
+- `--output`, `-o` : output mp4 filename (required)
 - `--tempdir`      : temporary directory for segment files (default under system
   temp)
 - `--limit_conn`   : limit of concurrent connections (default: 100)
@@ -91,7 +116,7 @@ optional arguments:
 
 This tool implements the common m3u8/HLS features required to choose a media
 playlist from a master playlist, download encryption keys and media segments,
-and assemble them into an MP4 using `ffmpeg`. It does not implement every
+and assemble them into an mp4 using `ffmpeg`. It does not implement every
 extension of the HLS specification; if a playlist uses a newer or uncommon
 extension this tool may fail to download correctly.
 
@@ -111,3 +136,7 @@ extension this tool may fail to download correctly.
 * v1.2.2
 
   - added `--cut_ads` option to attempt ad removal before muxing
+
+* v1.3.0
+
+  - Support for batch / multi-URL downloads (pass multiple m3u8 URLs and the downloader will handle each)

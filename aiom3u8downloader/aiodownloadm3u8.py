@@ -205,7 +205,7 @@ def write_file(file_path, content):
 class AioM3u8Downloader:
     def __init__(
         self,
-        url,
+        urls,
         output_filename,
         tempdir='.',
         limit_conn=100,
@@ -213,7 +213,9 @@ class AioM3u8Downloader:
         cut_ads=False,
         logger: logging.Logger = logging.getLogger(),
     ):
-        self.start_url = url
+        # self.start_url = urls
+        self.urls = urls
+        self.logger = logger
 
         # make sure output_filename is a safe filename on platform.
         # mainly for windows.
@@ -228,29 +230,39 @@ class AioM3u8Downloader:
         else:
             logger.debug('output_filename=%s', output_filename)
         self.output_filename = get_fullpath(output_filename)
-        self.tempdir = get_fullpath(
-            os.path.join(
-                tempdir,
-                urlparse(url).hostname.replace('.', '_')
-                + '_'
-                + get_basename(output_filename),
-            )
-        )
-        try:
-            os.makedirs(self.tempdir, exist_ok=True)
-            logger.debug('using temp dir at: %s', self.tempdir)
-        except IOError as _:
-            logger.exception('create tempdir failed for: %s', self.tempdir)
-            raise
 
+        self.url_subtempdir = {}
+        for url in urls:
+            _subtempdir = self.getTempdirFullpath(tempdir, url, output_filename)
+            self._make_subtempdir(_subtempdir)
+            self.url_subtempdir[url] = _subtempdir
+
+        self.subtempdir = None
         self.media_playlist_local_file = None
         self.limit_conn = limit_conn
-        self.auto_rename = auto_rename
+        self.auto_rename = True if len(urls) > 1 else auto_rename
         self.total_fragments = 0
         self.cut_ads = cut_ads
         self.fragments = OrderedDict()
         self.session = None
-        self.logger = logger
+
+    @staticmethod
+    def getTempdirFullpath(tempdir, url, output_filename):
+        urlParts = Path(url).parts
+        return get_fullpath(
+            os.path.join(
+                tempdir,
+                '_'.join(re.sub(r'\W+', '_', p) for p in [urlParts[1], *urlParts[-3:-1]] if p)
+            )
+        )
+
+    def _make_subtempdir(self, subtempdir):
+        try:
+            os.makedirs(subtempdir, exist_ok=True)
+            self.logger.debug('using temp dir at: %s', subtempdir)
+        except IOError as _:
+            self.logger.exception('create subtempdir failed for: %s', subtempdir)
+            raise
 
     async def aio_get_url_content(self, url):
         """async fetch url, return content as bytes."""
@@ -285,7 +297,7 @@ class AioM3u8Downloader:
                     if line == '#EXT-X-KEY:METHOD=NONE':
                         continue
                     if line.startswith('#EXT-X-KEY:'):
-                        f.write(rewrite_key_uri(self.tempdir, m3u8_url, line))
+                        f.write(rewrite_key_uri(self.subtempdir, m3u8_url, line))
                     else:
                         f.write(line)
                     f.write('\n')
@@ -295,7 +307,7 @@ class AioM3u8Downloader:
                 else:
                     f.write(
                         get_local_file_for_url(
-                            self.tempdir, urljoin(m3u8_url, line), line
+                            self.subtempdir, urljoin(m3u8_url, line), line
                         )
                     )
                     f.write('\n')
@@ -314,13 +326,52 @@ class AioM3u8Downloader:
         return target_mp4_path
 
     def start(self):
-        loop = asyncio.get_event_loop()
-        success = loop.run_until_complete(
-            asyncio.ensure_future(self.aio_download_m3u8_link(self.start_url))
-        )
+        total = len(self.urls)
+        success_count = 0
+        failed_urls = []
+
+        async def download_all():
+            results = []
+            for url in self.urls:
+                result = await self._start_async(url)
+                results.append(result)
+            return results
+
+        results = asyncio.run(download_all())
+
+        for url, result in zip(self.urls, results):
+            if isinstance(result, Exception):
+                failed_urls.append(url)
+                self.logger.error('download failed for url: %s, error: %s', url, result)
+            elif result:
+                success_count += 1
+                self.logger.info('download successful for url: %s', url)
+            else:
+                failed_urls.append(url)
+                self.logger.error('download failed for url: %s', url)
+
+        self.logger.info('=' * 50)
+        self.logger.info('Download Summary:')
+        self.logger.info('Total URLs: %d', total)
+        self.logger.info('Success: %d', success_count)
+        self.logger.info('Failed: %d', len(failed_urls))
+        self.logger.info('Success rate: %.1f%%', (success_count / total) * 100)
+
+        if failed_urls:
+            self.logger.info('Failed URLs:')
+            for failed_url in failed_urls:
+                self.logger.info('  - %s', failed_url)
+        self.logger.info('=' * 50)
+
+    async def _start_async(self, url):
+        self.subtempdir = self.url_subtempdir[url]
+        self.total_fragments = 0
+        self.fragments = OrderedDict()
+
+        success = await self.aio_download_m3u8_link(url)
 
         if not success:
-            return None, False
+            return None
 
         target_mp4 = self.output_filename
         if not target_mp4.endswith('.mp4'):
@@ -333,7 +384,7 @@ class AioM3u8Downloader:
         media_path = self.media_playlist_local_file
         if self.cut_ads:
             cutInsertTs = CutInsertTs(logger=self.logger)
-            success = cutInsertTs.cut(self.media_playlist_local_file)
+            success = await cutInsertTs.cut(self.media_playlist_local_file)
 
             if success:
                 media_path = cutInsertTs.gen_cut_path(self.media_playlist_local_file)
@@ -366,26 +417,27 @@ class AioM3u8Downloader:
             if proc.stderr:
                 self.logger.error('=> ' + proc.stderr.decode('utf-8'))
             self.logger.error('---------------------------------------------')
-            sys.exit(proc.returncode)
+            # sys.exit(proc.returncode)
+            return None
 
         self.logger.info(
             'mp4 file created, size=%.1fMiB, filename=%s',
             filesize_mib(target_mp4),
             target_mp4,
         )
-        self.logger.info('Removing temp files in dir: "%s"', self.tempdir)
+        self.logger.info('Removing temp files in dir: "%s"', self.subtempdir)
         try:
-            if os.path.exists(self.tempdir):
-                shutil.rmtree(self.tempdir)
+            if os.path.exists(self.subtempdir):
+                shutil.rmtree(self.subtempdir)
         except Exception:
-            self.logger.exception('failed to remove temp dir: %s', self.tempdir)
+            self.logger.exception('failed to remove temp dir: %s', self.subtempdir)
         self.logger.info('temp files removed')
 
-        return target_mp4, True
+        return target_mp4
 
     async def aio_mirror_url_resource(self, remote_file_url: str):
         """return fragment_file_local_path, reuse, success"""
-        local_file = get_local_file_for_url(self.tempdir, remote_file_url)
+        local_file = get_local_file_for_url(self.subtempdir, remote_file_url)
         if os.path.exists(local_file):
             self.logger.debug('skip downloaded resource: %s', remote_file_url)
             return local_file, True, True
@@ -629,7 +681,7 @@ def main():
         default=100,
         help='limit amount of simultaneously opened connections',
     )
-    parser.add_argument('url', metavar='URL', help='the m3u8 url')
+    parser.add_argument('url', metavar='URL', nargs='+', help='one or more m3u8 URLs')
     parser.add_argument(
         '--auto_rename',
         '-ar',

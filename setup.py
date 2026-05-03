@@ -10,11 +10,24 @@ from setuptools import setup, find_packages
 
 setup(
     name="aiom3u8downloader",
-    version='1.2.2',
-    description=
-    "Update package m3u8downloader to use aiohttp download m3u8 url",
+    version='1.3.0',
+    description=(
+        "Asynchronous high-speed HLS (m3u8) downloader and MP4 assembler "
+        "using aiohttp for parallel downloads and ffmpeg for final muxing"
+    ),
     long_description=open('README.md', encoding='utf-8').read(),
     long_description_content_type='text/markdown',
+    keywords=[
+        'hls',
+        'm3u8',
+        'download',
+        'aiohttp',
+        'asyncio',
+        'ffmpeg',
+        'video',
+        'streaming',
+        'downloader',
+    ],
     python_requires=">=3.6",
     install_requires=[
         'requests>=2.25.1',
@@ -33,6 +46,10 @@ setup(
     author="cghn",
     license="GPLv3",
     url="https://github.com/kirikumo/aiom3u8downloader/",
+    project_urls={
+        'Source': 'https://github.com/kirikumo/aiom3u8downloader',
+        'Issues': 'https://github.com/kirikumo/aiom3u8downloader/issues',
+    },
     classifiers=[
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Programming Language :: Python :: 3.6',
